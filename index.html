@@ -48,10 +48,9 @@
 
   .timer-canvas {
     position: absolute;
-    inset: 8px;
-    width: calc(100% - 16px);
-    height: calc(100% - 16px);
-    border-radius: 50%;
+    inset: 0;
+    width: 100%;
+    height: 100%;
   }
 
   /* ── Center Content ── */
@@ -67,7 +66,7 @@
   }
 
   .time-display {
-    font-size: min(72px, 18vw);
+    font-size: min(96px, 24vw);
     font-weight: 900;
     letter-spacing: -3px;
     line-height: 1;
@@ -264,7 +263,9 @@
   function draw() {
     if (!ctx) return;
     var w = canvas.width / dpr, h = canvas.height / dpr;
-    var cx = w / 2, cy = h / 2, r = w / 2 - 1;
+    var cx = w / 2, cy = h / 2;
+    var pad = w * 0.04;
+    var r = w / 2 - pad; // outer edge for ticks
     ctx.clearRect(0, 0, w, h);
 
     // Track
@@ -273,22 +274,23 @@
     ctx.fillStyle = '#f0f0f0';
     ctx.fill();
 
-    // Red pie — always relative to 60 min dial
+    // Red pie — smaller radius, numbers sit outside it
+    var pieR = r * 0.78;
     if (total > 0 && remain > 0) {
       var frac = remain / 3600;
       ctx.beginPath();
       ctx.moveTo(cx, cy);
-      ctx.arc(cx, cy, r, -Math.PI / 2, -Math.PI / 2 + frac * Math.PI * 2);
+      ctx.arc(cx, cy, pieR, -Math.PI / 2, -Math.PI / 2 + frac * Math.PI * 2);
       ctx.closePath();
       ctx.fillStyle = '#e74c3c';
       ctx.fill();
     }
 
-    // Ticks
+    // Ticks — on outer edge
     for (var i = 0; i < 60; i++) {
       var a = (i * 6 - 90) * Math.PI / 180;
       var maj = i % 5 === 0;
-      var o = r - 1, inner = maj ? r - 18 : r - 9;
+      var o = r, inner = maj ? r - 14 : r - 7;
       ctx.beginPath();
       ctx.moveTo(cx + o * Math.cos(a), cy + o * Math.sin(a));
       ctx.lineTo(cx + inner * Math.cos(a), cy + inner * Math.sin(a));
@@ -298,15 +300,17 @@
       ctx.stroke();
     }
 
-    // Numbers
+    // Numbers — between ticks and pie
     var nums = [60,5,10,15,20,25,30,35,40,45,50,55];
-    ctx.font = 'bold ' + Math.round(w * 0.052) + 'px Nunito,sans-serif';
+    var fontSize = Math.round(w * 0.044);
+    ctx.font = 'bold ' + fontSize + 'px Nunito,sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillStyle = 'rgba(0,0,0,0.25)';
+    ctx.fillStyle = 'rgba(0,0,0,0.28)';
+    var numR = r - 22;
     for (var j = 0; j < 12; j++) {
       var a2 = (j * 30 - 90) * Math.PI / 180;
-      ctx.fillText(nums[j], cx + (r - 30) * Math.cos(a2), cy + (r - 30) * Math.sin(a2));
+      ctx.fillText(nums[j], cx + numR * Math.cos(a2), cy + numR * Math.sin(a2));
     }
   }
 
@@ -382,7 +386,7 @@
     stopAlarm();
   };
 
-  // ── LOUD siren ──
+  // ── BEEP BEEP alarm (like a kitchen timer) ──
   function playAlarm() {
     try {
       audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
@@ -390,36 +394,30 @@
       master.gain.value = 1.0;
       master.connect(audioCtx.destination);
 
-      var siren = function() {
+      // Pattern: beep-beep ... beep-beep (삐빅 삐빅)
+      var beepPair = function() {
         var t = audioCtx.currentTime;
-        // High sweep
+        // First beep
         var o1 = audioCtx.createOscillator(), g1 = audioCtx.createGain();
         o1.connect(g1); g1.connect(master);
-        o1.type = 'square';
-        o1.frequency.setValueAtTime(1200, t);
-        o1.frequency.linearRampToValueAtTime(600, t + 0.2);
-        g1.gain.setValueAtTime(1.0, t);
-        g1.gain.exponentialRampToValueAtTime(0.01, t + 0.25);
-        o1.start(t); o1.stop(t + 0.25);
-        // Low tone
+        o1.type = 'sine';
+        o1.frequency.value = 1000;
+        g1.gain.setValueAtTime(0.8, t);
+        g1.gain.setValueAtTime(0.8, t + 0.12);
+        g1.gain.exponentialRampToValueAtTime(0.01, t + 0.15);
+        o1.start(t); o1.stop(t + 0.15);
+        // Second beep (slightly higher)
         var o2 = audioCtx.createOscillator(), g2 = audioCtx.createGain();
         o2.connect(g2); g2.connect(master);
-        o2.type = 'sawtooth';
-        o2.frequency.setValueAtTime(400, t);
-        o2.frequency.linearRampToValueAtTime(800, t + 0.15);
-        g2.gain.setValueAtTime(0.7, t);
-        g2.gain.exponentialRampToValueAtTime(0.01, t + 0.2);
-        o2.start(t); o2.stop(t + 0.2);
-        // Click
-        var o3 = audioCtx.createOscillator(), g3 = audioCtx.createGain();
-        o3.connect(g3); g3.connect(master);
-        o3.type = 'square'; o3.frequency.value = 2000;
-        g3.gain.setValueAtTime(0.8, t);
-        g3.gain.exponentialRampToValueAtTime(0.01, t + 0.05);
-        o3.start(t); o3.stop(t + 0.05);
+        o2.type = 'sine';
+        o2.frequency.value = 1200;
+        g2.gain.setValueAtTime(0.8, t + 0.2);
+        g2.gain.setValueAtTime(0.8, t + 0.32);
+        g2.gain.exponentialRampToValueAtTime(0.01, t + 0.35);
+        o2.start(t + 0.2); o2.stop(t + 0.35);
       };
-      siren();
-      alarmIv = setInterval(siren, 350);
+      beepPair();
+      alarmIv = setInterval(beepPair, 700);
     } catch(e) {}
   }
 
