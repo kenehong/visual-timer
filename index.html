@@ -212,6 +212,7 @@
   var canvas, ctx, dpr;
   var dragging = false;
   var lastAngle = -1;
+  var lockedAt = 0; // 0=none, 60=locked at max, 1=locked at min
 
   function $(id) { return document.getElementById(id); }
 
@@ -353,32 +354,60 @@
     if (isOnPlayButton(e)) return;
     e.preventDefault();
     dragging = true;
-    lastAngle = getAngleFromEvent(e);
+    lockedAt = 0;
+    var angle = getAngleFromEvent(e);
+    lastAngle = angle;
     $('timer').classList.add('dragging');
-    setFromEvent(e);
+    var min = angleToMinutes(angle);
+    total = Math.min(min * 60, 3600);
+    remain = total;
+    update();
   }
 
   function moveDrag(e) {
     if (!dragging) return;
     e.preventDefault();
     var angle = getAngleFromEvent(e);
-    var currentMin = Math.round(total / 60);
     var newMin = angleToMinutes(angle);
+    var currentMin = Math.round(total / 60);
 
-    // Detect crossing the 0/60 boundary
-    // If last angle was near 360 and new angle is near 0 → trying to go past 60 clockwise → block
-    if (lastAngle > 300 && angle < 60 && currentMin >= 55) {
-      // Clamp to 60
-      total = 3600;
-      remain = total;
-      lastAngle = angle;
-      update();
-      return;
+    // If locked at 60, stay locked until angle is clearly in the 50-59 zone (moving back)
+    if (lockedAt === 60) {
+      if (angle > 300 && angle <= 354) {
+        // User dragged back counter-clockwise into 50-59 range, unlock
+        lockedAt = 0;
+      } else {
+        lastAngle = angle;
+        return;
+      }
     }
-    // If last angle was near 0 and new angle is near 360 → going counter-clockwise past 0 → clamp to 0
-    if (lastAngle < 60 && angle > 300 && currentMin <= 5) {
-      total = 0;
-      remain = 0;
+
+    // If locked at 0, stay locked until angle is clearly in the 1-10 zone (moving forward)
+    if (lockedAt === 1) {
+      if (angle > 6 && angle < 60) {
+        // User dragged forward clockwise into 1-10 range, unlock
+        lockedAt = 0;
+      } else {
+        lastAngle = angle;
+        return;
+      }
+    }
+
+    // Detect boundary crossing by checking if the jump is huge (>30 min difference)
+    var jump = Math.abs(newMin - currentMin);
+    if (jump > 30) {
+      // Crossed the 12 o'clock boundary
+      if (currentMin > 30) {
+        // Was in upper half (near 60), lock at 60
+        total = 3600;
+        remain = total;
+        lockedAt = 60;
+      } else {
+        // Was in lower half (near 0), lock at 0
+        total = 0;
+        remain = 0;
+        lockedAt = 1;
+      }
       lastAngle = angle;
       update();
       return;
@@ -395,17 +424,9 @@
     if (!dragging) return;
     dragging = false;
     lastAngle = -1;
+    lockedAt = 0;
     $('timer').classList.remove('dragging');
     remain = total;
-  }
-
-  function setFromEvent(e) {
-    var angle = getAngleFromEvent(e);
-    var min = angleToMinutes(angle);
-    total = Math.min(min * 60, 3600);
-    remain = total;
-    lastAngle = angle;
-    update();
   }
 
   // Mouse events
