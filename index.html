@@ -503,6 +503,13 @@
   }
   function releaseWake() { if(wl){wl.release();wl=null;} }
 
+  // Re-acquire wake lock when tab becomes visible again (OS releases it on background)
+  document.addEventListener('visibilitychange', function() {
+    if (document.visibilityState === 'visible' && running) {
+      requestWake();
+    }
+  });
+
   // iOS audio unlock
   document.addEventListener('touchstart', function() {
     if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
