@@ -28,14 +28,16 @@
     -webkit-font-smoothing: antialiased;
     user-select: none; -webkit-user-select: none;
     overflow: hidden;
+    touch-action: none;
   }
 
-  /* ── Timer Circle — as big as possible ── */
   .timer {
     position: relative;
     width: min(96vw, 96vh);
     height: min(96vw, 96vh);
+    cursor: grab;
   }
+  .timer.dragging { cursor: grabbing; }
 
   .timer-face {
     position: absolute;
@@ -53,7 +55,6 @@
     height: 100%;
   }
 
-  /* ── Center Content ── */
   .center {
     position: absolute;
     inset: 0;
@@ -63,6 +64,7 @@
     justify-content: center;
     z-index: 2;
     gap: 8px;
+    pointer-events: none;
   }
 
   .time-display {
@@ -74,44 +76,21 @@
     color: #2a2a2a;
   }
 
-  /* ── Presets (inside circle) ── */
-  .presets {
-    display: flex;
-    gap: 6px;
-    flex-wrap: wrap;
-    justify-content: center;
-    max-width: 75%;
-  }
-
-  .preset {
-    background: rgba(255,255,255,0.85);
-    border: 2px solid transparent;
-    color: #555;
-    font-family: inherit;
+  .hint {
     font-size: min(14px, 3.5vw);
-    font-weight: 800;
-    padding: 6px 12px;
-    border-radius: 10px;
-    cursor: pointer;
-    -webkit-tap-highlight-color: transparent;
-    transition: all 0.12s;
-  }
-  .preset:active { transform: scale(0.93); }
-  .preset.active {
-    background: white;
-    border-color: #e74c3c;
-    color: #c0392b;
+    font-weight: 700;
+    color: #bbb;
+    transition: opacity 0.3s;
   }
 
-  /* ── Start/Pause Button (inside circle) ── */
   .play-btn {
-    width: 56px;
-    height: 56px;
+    width: 64px;
+    height: 64px;
     border-radius: 50%;
     border: none;
     background: #e74c3c;
     color: white;
-    font-size: 24px;
+    font-size: 28px;
     cursor: pointer;
     box-shadow: 0 4px 0 #c0392b;
     display: flex;
@@ -119,6 +98,7 @@
     justify-content: center;
     -webkit-tap-highlight-color: transparent;
     transition: transform 0.1s;
+    pointer-events: auto;
     margin-top: 4px;
   }
   .play-btn:active { transform: translateY(3px); box-shadow: 0 1px 0 #c0392b; }
@@ -128,7 +108,6 @@
   }
   .play-btn.running:active { box-shadow: 0 1px 0 #d68910; }
 
-  /* Reset link */
   .reset-link {
     font-size: 13px;
     font-weight: 700;
@@ -136,14 +115,13 @@
     cursor: pointer;
     -webkit-tap-highlight-color: transparent;
     padding: 4px 8px;
+    pointer-events: auto;
   }
-  .reset-link:active { color: #999; }
 
-  /* Hide presets when running */
-  .timer.running .presets { display: none; }
-  .timer.running .reset-link { display: none; }
+  /* Hide hint when time is set */
+  .timer.has-time .hint { display: none; }
 
-  /* ── Pulse last 10s ── */
+  /* Pulse last 10s */
   .timer.pulse .time-display {
     color: #e74c3c;
     animation: pulse 1s infinite;
@@ -153,7 +131,7 @@
     50% { transform: scale(1.06); opacity: 0.5; }
   }
 
-  /* ── Alert Overlay ── */
+  /* Alert Overlay */
   .alert-overlay {
     position: fixed;
     inset: 0;
@@ -215,17 +193,7 @@
   </div>
   <div class="center">
     <div class="time-display" id="time">0:00</div>
-    <div class="presets">
-      <button class="preset" onclick="pick(1)">1</button>
-      <button class="preset" onclick="pick(3)">3</button>
-      <button class="preset" onclick="pick(5)">5</button>
-      <button class="preset" onclick="pick(10)">10</button>
-      <button class="preset" onclick="pick(15)">15</button>
-      <button class="preset" onclick="pick(20)">20</button>
-      <button class="preset" onclick="pick(30)">30</button>
-      <button class="preset" onclick="pick(45)">45</button>
-      <button class="preset" onclick="pick(60)">60</button>
-    </div>
+    <div class="hint" id="hint">Drag to set time</div>
     <button class="play-btn" id="play" onclick="toggle()">▶</button>
     <div class="reset-link" id="reset" onclick="reset()" style="display:none">reset</div>
   </div>
@@ -242,6 +210,8 @@
   var total = 0, remain = 0, running = false, iv = null;
   var audioCtx = null, alarmIv = null, vibIv = null;
   var canvas, ctx, dpr;
+  var dragging = false;
+  var lastAngle = -1;
 
   function $(id) { return document.getElementById(id); }
 
@@ -265,7 +235,7 @@
     var w = canvas.width / dpr, h = canvas.height / dpr;
     var cx = w / 2, cy = h / 2;
     var pad = w * 0.04;
-    var r = w / 2 - pad; // outer edge for ticks
+    var r = w / 2 - pad;
     ctx.clearRect(0, 0, w, h);
 
     // Track
@@ -274,10 +244,11 @@
     ctx.fillStyle = '#f0f0f0';
     ctx.fill();
 
-    // Red pie — smaller radius, numbers sit outside it
+    // Red pie
     var pieR = r * 0.78;
-    if (total > 0 && remain > 0) {
-      var frac = remain / 3600;
+    var secs = running ? remain : total;
+    if (secs > 0) {
+      var frac = secs / 3600;
       ctx.beginPath();
       ctx.moveTo(cx, cy);
       ctx.arc(cx, cy, pieR, -Math.PI / 2, -Math.PI / 2 + frac * Math.PI * 2);
@@ -286,7 +257,7 @@
       ctx.fill();
     }
 
-    // Ticks — on outer edge
+    // Ticks
     for (var i = 0; i < 60; i++) {
       var a = (i * 6 - 90) * Math.PI / 180;
       var maj = i % 5 === 0;
@@ -300,7 +271,7 @@
       ctx.stroke();
     }
 
-    // Numbers — between ticks and pie
+    // Numbers
     var nums = [60,5,10,15,20,25,30,35,40,45,50,55];
     var fontSize = Math.round(w * 0.044);
     ctx.font = 'bold ' + fontSize + 'px Nunito,sans-serif';
@@ -315,19 +286,26 @@
   }
 
   function update() {
-    $('time').textContent = fmt(remain);
+    $('time').textContent = fmt(running ? remain : total);
     draw();
     var el = $('timer');
-    el.classList.toggle('running', running);
+    el.classList.toggle('has-time', total > 0);
     el.classList.toggle('pulse', running && remain <= 10 && remain > 0);
     $('reset').style.display = (!running && remain > 0 && remain < total) ? '' : 'none';
+
+    // Play button state
+    if (running) {
+      $('play').textContent = '❚❚';
+      $('play').classList.add('running');
+    } else {
+      $('play').textContent = '▶';
+      $('play').classList.remove('running');
+    }
   }
 
   function tick() {
     if (remain <= 0) {
       clearInterval(iv); iv = null; running = false;
-      $('play').textContent = '▶';
-      $('play').classList.remove('running');
       update();
       showAlert();
       return;
@@ -336,30 +314,119 @@
     update();
   }
 
-  window.pick = function(min) {
-    if (running) return;
-    total = min * 60;
-    remain = total;
-    var btns = document.querySelectorAll('.preset');
-    for (var i = 0; i < btns.length; i++) {
-      btns[i].classList.toggle('active', parseInt(btns[i].textContent) === min);
+  // ── Drag to set time ──
+  function getAngleFromEvent(e) {
+    var rect = $('timer').getBoundingClientRect();
+    var cx = rect.left + rect.width / 2;
+    var cy = rect.top + rect.height / 2;
+    var x, y;
+    if (e.touches) {
+      x = e.touches[0].clientX;
+      y = e.touches[0].clientY;
+    } else {
+      x = e.clientX;
+      y = e.clientY;
     }
+    // Angle from 12 o'clock, clockwise, 0-360
+    var angle = Math.atan2(x - cx, -(y - cy)) * 180 / Math.PI;
+    if (angle < 0) angle += 360;
+    return angle;
+  }
+
+  function angleToMinutes(angle) {
+    // 360° = 60 min, snap to nearest minute
+    var min = Math.round(angle / 6);
+    if (min === 0) min = 60;
+    return min;
+  }
+
+  function isOnPlayButton(e) {
+    var btn = $('play');
+    var rect = btn.getBoundingClientRect();
+    var x = e.touches ? e.touches[0].clientX : e.clientX;
+    var y = e.touches ? e.touches[0].clientY : e.clientY;
+    return x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
+  }
+
+  function startDrag(e) {
+    if (running) return;
+    if (isOnPlayButton(e)) return;
+    e.preventDefault();
+    dragging = true;
+    lastAngle = getAngleFromEvent(e);
+    $('timer').classList.add('dragging');
+    setFromEvent(e);
+  }
+
+  function moveDrag(e) {
+    if (!dragging) return;
+    e.preventDefault();
+    var angle = getAngleFromEvent(e);
+    var currentMin = Math.round(total / 60);
+    var newMin = angleToMinutes(angle);
+
+    // Detect crossing the 0/60 boundary
+    // If last angle was near 360 and new angle is near 0 → trying to go past 60 clockwise → block
+    if (lastAngle > 300 && angle < 60 && currentMin >= 55) {
+      // Clamp to 60
+      total = 3600;
+      remain = total;
+      lastAngle = angle;
+      update();
+      return;
+    }
+    // If last angle was near 0 and new angle is near 360 → going counter-clockwise past 0 → clamp to 0
+    if (lastAngle < 60 && angle > 300 && currentMin <= 5) {
+      total = 0;
+      remain = 0;
+      lastAngle = angle;
+      update();
+      return;
+    }
+
+    lastAngle = angle;
+    total = newMin * 60;
+    if (total > 3600) total = 3600;
+    remain = total;
     update();
-  };
+  }
+
+  function endDrag(e) {
+    if (!dragging) return;
+    dragging = false;
+    lastAngle = -1;
+    $('timer').classList.remove('dragging');
+    remain = total;
+  }
+
+  function setFromEvent(e) {
+    var angle = getAngleFromEvent(e);
+    var min = angleToMinutes(angle);
+    total = Math.min(min * 60, 3600);
+    remain = total;
+    lastAngle = angle;
+    update();
+  }
+
+  // Mouse events
+  $('timer').addEventListener('mousedown', startDrag);
+  window.addEventListener('mousemove', moveDrag);
+  window.addEventListener('mouseup', endDrag);
+
+  // Touch events
+  $('timer').addEventListener('touchstart', startDrag, { passive: false });
+  window.addEventListener('touchmove', moveDrag, { passive: false });
+  window.addEventListener('touchend', endDrag);
 
   window.toggle = function() {
     if (total === 0) return;
     if (running) {
       clearInterval(iv); iv = null; running = false;
-      $('play').textContent = '▶';
-      $('play').classList.remove('running');
       releaseWake();
     } else {
       if (remain === 0) remain = total;
       running = true;
       iv = setInterval(tick, 1000);
-      $('play').textContent = '❚❚';
-      $('play').classList.add('running');
       requestWake();
     }
     update();
@@ -368,8 +435,6 @@
   window.reset = function() {
     clearInterval(iv); iv = null; running = false;
     remain = total;
-    $('play').textContent = '▶';
-    $('play').classList.remove('running');
     releaseWake();
     update();
   };
@@ -386,7 +451,7 @@
     stopAlarm();
   };
 
-  // ── BEEP BEEP alarm (like a kitchen timer) ──
+  // ── BEEP BEEP alarm ──
   function playAlarm() {
     try {
       audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
@@ -394,23 +459,19 @@
       master.gain.value = 1.0;
       master.connect(audioCtx.destination);
 
-      // Pattern: beep-beep ... beep-beep (삐빅 삐빅)
       var beepPair = function() {
         var t = audioCtx.currentTime;
-        // First beep
         var o1 = audioCtx.createOscillator(), g1 = audioCtx.createGain();
         o1.connect(g1); g1.connect(master);
-        o1.type = 'sine';
-        o1.frequency.value = 1000;
+        o1.type = 'sine'; o1.frequency.value = 1000;
         g1.gain.setValueAtTime(0.8, t);
         g1.gain.setValueAtTime(0.8, t + 0.12);
         g1.gain.exponentialRampToValueAtTime(0.01, t + 0.15);
         o1.start(t); o1.stop(t + 0.15);
-        // Second beep (slightly higher)
+
         var o2 = audioCtx.createOscillator(), g2 = audioCtx.createGain();
         o2.connect(g2); g2.connect(master);
-        o2.type = 'sine';
-        o2.frequency.value = 1200;
+        o2.type = 'sine'; o2.frequency.value = 1200;
         g2.gain.setValueAtTime(0.8, t + 0.2);
         g2.gain.setValueAtTime(0.8, t + 0.32);
         g2.gain.exponentialRampToValueAtTime(0.01, t + 0.35);
@@ -453,7 +514,6 @@
   update();
   window.addEventListener('resize', function() { initCanvas(); draw(); });
 
-  // PWA Service Worker
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('./sw.js');
   }
