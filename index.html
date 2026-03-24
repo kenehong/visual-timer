@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Timer">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#f0f0f0">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<title>Visual Timer</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Nunito:wght@700;800;900&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: 'Nunito', -apple-system, system-ui, sans-serif;
+    background: #f0f0f0;
+    min-height: 100vh;
+    min-height: 100dvh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+    -webkit-font-smoothing: antialiased;
+    user-select: none; -webkit-user-select: none;
+    overflow: hidden;
+  }
+
+  /* ── Timer Circle ── */
+  .timer {
+    position: relative;
+    width: min(380px, 90vw, 90vh);
+    height: min(380px, 90vw, 90vh);
+  }
+
+  .timer-face {
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
+    background: #fff;
+    box-shadow: 0 8px 0 rgba(0,0,0,0.07), 0 2px 24px rgba(0,0,0,0.06), inset 0 0 0 5px #e8e8e8;
+    overflow: hidden;
+  }
+
+  .timer-canvas {
+    position: absolute;
+    inset: 8px;
+    width: calc(100% - 16px);
+    height: calc(100% - 16px);
+    border-radius: 50%;
+  }
+
+  /* ── Center Content ── */
+  .center {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    z-index: 2;
+    gap: 8px;
+  }
+
+  .time-display {
+    font-size: min(72px, 18vw);
+    font-weight: 900;
+    letter-spacing: -3px;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+    color: #2a2a2a;
+  }
+
+  /* ── Presets (inside circle) ── */
+  .presets {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    justify-content: center;
+    max-width: 75%;
+  }
+
+  .preset {
+    background: rgba(255,255,255,0.85);
+    border: 2px solid transparent;
+    color: #555;
+    font-family: inherit;
+    font-size: min(14px, 3.5vw);
+    font-weight: 800;
+    padding: 6px 12px;
+    border-radius: 10px;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    transition: all 0.12s;
+  }
+  .preset:active { transform: scale(0.93); }
+  .preset.active {
+    background: white;
+    border-color: #e74c3c;
+    color: #c0392b;
+  }
+
+  /* ── Start/Pause Button (inside circle) ── */
+  .play-btn {
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    border: none;
+    background: #e74c3c;
+    color: white;
+    font-size: 24px;
+    cursor: pointer;
+    box-shadow: 0 4px 0 #c0392b;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    -webkit-tap-highlight-color: transparent;
+    transition: transform 0.1s;
+    margin-top: 4px;
+  }
+  .play-btn:active { transform: translateY(3px); box-shadow: 0 1px 0 #c0392b; }
+  .play-btn.running {
+    background: #f39c12;
+    box-shadow: 0 4px 0 #d68910;
+  }
+  .play-btn.running:active { box-shadow: 0 1px 0 #d68910; }
+
+  /* Reset link */
+  .reset-link {
+    font-size: 13px;
+    font-weight: 700;
+    color: #bbb;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    padding: 4px 8px;
+  }
+  .reset-link:active { color: #999; }
+
+  /* Hide presets when running */
+  .timer.running .presets { display: none; }
+  .timer.running .reset-link { display: none; }
+
+  /* ── Pulse last 10s ── */
+  .timer.pulse .time-display {
+    color: #e74c3c;
+    animation: pulse 1s infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { transform: scale(1); opacity: 1; }
+    50% { transform: scale(1.06); opacity: 0.5; }
+  }
+
+  /* ── Alert Overlay ── */
+  .alert-overlay {
+    position: fixed;
+    inset: 0;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    gap: 24px;
+    z-index: 100;
+    animation: alertFlash 0.6s infinite;
+    cursor: pointer;
+  }
+  .alert-overlay.show { display: flex; }
+
+  @keyframes alertFlash {
+    0%, 100% { background: #e74c3c; }
+    50% { background: #c0392b; }
+  }
+
+  .alert-icon {
+    font-size: 120px;
+    animation: alertBounce 0.35s infinite alternate ease-in-out;
+  }
+  .alert-text {
+    font-size: min(52px, 13vw);
+    font-weight: 900;
+    color: white;
+    text-shadow: 0 4px 8px rgba(0,0,0,0.2);
+    animation: alertShake 0.25s infinite;
+  }
+  .alert-stop {
+    background: white;
+    color: #e74c3c;
+    border: none;
+    font-family: inherit;
+    font-size: 22px;
+    font-weight: 900;
+    padding: 18px 56px;
+    border-radius: 20px;
+    cursor: pointer;
+    box-shadow: 0 6px 0 rgba(0,0,0,0.12);
+    -webkit-tap-highlight-color: transparent;
+  }
+  .alert-stop:active { transform: translateY(3px); box-shadow: 0 2px 0 rgba(0,0,0,0.12); }
+
+  @keyframes alertBounce { from { transform: scale(1); } to { transform: scale(1.2); } }
+  @keyframes alertShake {
+    0%, 100% { transform: translateX(0); }
+    25% { transform: translateX(-5px); }
+    75% { transform: translateX(5px); }
+  }
+</style>
+</head>
+<body>
+
+<div class="timer" id="timer">
+  <div class="timer-face">
+    <canvas class="timer-canvas" id="canvas"></canvas>
+  </div>
+  <div class="center">
+    <div class="time-display" id="time">0:00</div>
+    <div class="presets">
+      <button class="preset" onclick="pick(1)">1</button>
+      <button class="preset" onclick="pick(3)">3</button>
+      <button class="preset" onclick="pick(5)">5</button>
+      <button class="preset" onclick="pick(10)">10</button>
+      <button class="preset" onclick="pick(15)">15</button>
+      <button class="preset" onclick="pick(20)">20</button>
+      <button class="preset" onclick="pick(30)">30</button>
+      <button class="preset" onclick="pick(45)">45</button>
+      <button class="preset" onclick="pick(60)">60</button>
+    </div>
+    <button class="play-btn" id="play" onclick="toggle()">▶</button>
+    <div class="reset-link" id="reset" onclick="reset()" style="display:none">reset</div>
+  </div>
+</div>
+
+<div class="alert-overlay" id="alert" onclick="dismiss()">
+  <div class="alert-icon">🔔</div>
+  <div class="alert-text">TIME'S UP!</div>
+  <button class="alert-stop" onclick="dismiss()">STOP</button>
+</div>
+
+<script>
+(function() {
+  var total = 0, remain = 0, running = false, iv = null;
+  var audioCtx = null, alarmIv = null, vibIv = null;
+  var canvas, ctx, dpr;
+
+  function $(id) { return document.getElementById(id); }
+
+  function fmt(s) {
+    var m = Math.floor(s / 60), sec = s % 60;
+    return m + ':' + (sec < 10 ? '0' : '') + sec;
+  }
+
+  function initCanvas() {
+    canvas = $('canvas');
+    dpr = window.devicePixelRatio || 1;
+    var rect = canvas.getBoundingClientRect();
+    canvas.width = rect.width * dpr;
+    canvas.height = rect.height * dpr;
+    ctx = canvas.getContext('2d');
+    ctx.scale(dpr, dpr);
+  }
+
+  function draw() {
+    if (!ctx) return;
+    var w = canvas.width / dpr, h = canvas.height / dpr;
+    var cx = w / 2, cy = h / 2, r = w / 2 - 1;
+    ctx.clearRect(0, 0, w, h);
+
+    // Track
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.fillStyle = '#f0f0f0';
+    ctx.fill();
+
+    // Red pie — always relative to 60 min dial
+    if (total > 0 && remain > 0) {
+      var frac = remain / 3600;
+      ctx.beginPath();
+      ctx.moveTo(cx, cy);
+      ctx.arc(cx, cy, r, -Math.PI / 2, -Math.PI / 2 + frac * Math.PI * 2);
+      ctx.closePath();
+      ctx.fillStyle = '#e74c3c';
+      ctx.fill();
+    }
+
+    // Ticks
+    for (var i = 0; i < 60; i++) {
+      var a = (i * 6 - 90) * Math.PI / 180;
+      var maj = i % 5 === 0;
+      var o = r - 1, inner = maj ? r - 18 : r - 9;
+      ctx.beginPath();
+      ctx.moveTo(cx + o * Math.cos(a), cy + o * Math.sin(a));
+      ctx.lineTo(cx + inner * Math.cos(a), cy + inner * Math.sin(a));
+      ctx.strokeStyle = maj ? 'rgba(0,0,0,0.3)' : 'rgba(0,0,0,0.1)';
+      ctx.lineWidth = maj ? 2.5 : 1.5;
+      ctx.lineCap = 'round';
+      ctx.stroke();
+    }
+
+    // Numbers
+    var nums = [60,5,10,15,20,25,30,35,40,45,50,55];
+    ctx.font = 'bold ' + Math.round(w * 0.052) + 'px Nunito,sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = 'rgba(0,0,0,0.25)';
+    for (var j = 0; j < 12; j++) {
+      var a2 = (j * 30 - 90) * Math.PI / 180;
+      ctx.fillText(nums[j], cx + (r - 30) * Math.cos(a2), cy + (r - 30) * Math.sin(a2));
+    }
+  }
+
+  function update() {
+    $('time').textContent = fmt(remain);
+    draw();
+    var el = $('timer');
+    el.classList.toggle('running', running);
+    el.classList.toggle('pulse', running && remain <= 10 && remain > 0);
+    $('reset').style.display = (!running && remain > 0 && remain < total) ? '' : 'none';
+  }
+
+  function tick() {
+    if (remain <= 0) {
+      clearInterval(iv); iv = null; running = false;
+      $('play').textContent = '▶';
+      $('play').classList.remove('running');
+      update();
+      showAlert();
+      return;
+    }
+    remain--;
+    update();
+  }
+
+  window.pick = function(min) {
+    if (running) return;
+    total = min * 60;
+    remain = total;
+    var btns = document.querySelectorAll('.preset');
+    for (var i = 0; i < btns.length; i++) {
+      btns[i].classList.toggle('active', parseInt(btns[i].textContent) === min);
+    }
+    update();
+  };
+
+  window.toggle = function() {
+    if (total === 0) return;
+    if (running) {
+      clearInterval(iv); iv = null; running = false;
+      $('play').textContent = '▶';
+      $('play').classList.remove('running');
+      releaseWake();
+    } else {
+      if (remain === 0) remain = total;
+      running = true;
+      iv = setInterval(tick, 1000);
+      $('play').textContent = '❚❚';
+      $('play').classList.add('running');
+      requestWake();
+    }
+    update();
+  };
+
+  window.reset = function() {
+    clearInterval(iv); iv = null; running = false;
+    remain = total;
+    $('play').textContent = '▶';
+    $('play').classList.remove('running');
+    releaseWake();
+    update();
+  };
+
+  // ── Alert ──
+  function showAlert() {
+    $('alert').classList.add('show');
+    playAlarm();
+    vibrateLoop();
+  }
+
+  window.dismiss = function() {
+    $('alert').classList.remove('show');
+    stopAlarm();
+  };
+
+  // ── LOUD siren ──
+  function playAlarm() {
+    try {
+      audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+      var master = audioCtx.createGain();
+      master.gain.value = 1.0;
+      master.connect(audioCtx.destination);
+
+      var siren = function() {
+        var t = audioCtx.currentTime;
+        // High sweep
+        var o1 = audioCtx.createOscillator(), g1 = audioCtx.createGain();
+        o1.connect(g1); g1.connect(master);
+        o1.type = 'square';
+        o1.frequency.setValueAtTime(1200, t);
+        o1.frequency.linearRampToValueAtTime(600, t + 0.2);
+        g1.gain.setValueAtTime(1.0, t);
+        g1.gain.exponentialRampToValueAtTime(0.01, t + 0.25);
+        o1.start(t); o1.stop(t + 0.25);
+        // Low tone
+        var o2 = audioCtx.createOscillator(), g2 = audioCtx.createGain();
+        o2.connect(g2); g2.connect(master);
+        o2.type = 'sawtooth';
+        o2.frequency.setValueAtTime(400, t);
+        o2.frequency.linearRampToValueAtTime(800, t + 0.15);
+        g2.gain.setValueAtTime(0.7, t);
+        g2.gain.exponentialRampToValueAtTime(0.01, t + 0.2);
+        o2.start(t); o2.stop(t + 0.2);
+        // Click
+        var o3 = audioCtx.createOscillator(), g3 = audioCtx.createGain();
+        o3.connect(g3); g3.connect(master);
+        o3.type = 'square'; o3.frequency.value = 2000;
+        g3.gain.setValueAtTime(0.8, t);
+        g3.gain.exponentialRampToValueAtTime(0.01, t + 0.05);
+        o3.start(t); o3.stop(t + 0.05);
+      };
+      siren();
+      alarmIv = setInterval(siren, 350);
+    } catch(e) {}
+  }
+
+  function stopAlarm() {
+    if (alarmIv) { clearInterval(alarmIv); alarmIv = null; }
+    if (vibIv) { clearInterval(vibIv); vibIv = null; }
+    if (navigator.vibrate) navigator.vibrate(0);
+  }
+
+  function vibrateLoop() {
+    if (!navigator.vibrate) return;
+    navigator.vibrate([300,100,300,100,300,100,600]);
+    vibIv = setInterval(function() {
+      navigator.vibrate([300,100,300,100,300,100,600]);
+    }, 2000);
+  }
+
+  // ── Wake Lock ──
+  var wl = null;
+  function requestWake() {
+    try { if ('wakeLock' in navigator) navigator.wakeLock.request('screen').then(function(l){wl=l;}); } catch(e){}
+  }
+  function releaseWake() { if(wl){wl.release();wl=null;} }
+
+  // iOS audio unlock
+  document.addEventListener('touchstart', function() {
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+  }, { once: true });
+
+  // Init
+  initCanvas();
+  update();
+  window.addEventListener('resize', function() { initCanvas(); draw(); });
+
+  // PWA Service Worker
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('./sw.js');
+  }
+})();
+</script>
+
+</body>
+</html>
